@@ -84,6 +84,12 @@ help_info() {
         Display a countdown to the next episode
       -U, --update
         Update the script
+
+    Configuration:
+      The script looks for a configuration file at:
+      \${XDG_CONFIG_HOME:-\$HOME/.config}/ani-cli/config
+      You can set variables like ANI_CLI_QUALITY, ANI_CLI_PLAYER, etc. there.
+
     Some example usages:
       %s -q 720p banana fish
       %s --skip --skip-title \"one piece\" -S 2 one piece
