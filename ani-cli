@@ -67,7 +67,7 @@ help_info() {
       -h, --help
         Show this help message and exit
       -e, --episode, -r, --range
-        Specify the number of episodes to watch
+        Specify the episodes to watch (supports ranges 1-10 and multiple flags)
       --dub
         Play dubbed version
       --rofi
@@ -85,17 +85,13 @@ help_info() {
       -U, --update
         Update the script
 
-    Configuration:
-      The script looks for a configuration file at:
-      \${XDG_CONFIG_HOME:-\$HOME/.config}/ani-cli/config
-      You can set variables like ANI_CLI_QUALITY, ANI_CLI_PLAYER, etc. there.
-
     Some example usages:
       %s -q 720p banana fish
       %s --skip --skip-title \"one piece\" -S 2 one piece
       %s -d -e 2 cyberpunk edgerunners
       %s --vlc cyberpunk edgerunners -q 1080p -e 4
       %s blue lock -e 5-6
+      %s -e 1-5 -e 10-15 naruto
       %s -e \"5 6\" blue lock
     \n" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}" "${0##*/}"
     exit 0
@@ -357,27 +353,33 @@ play_episode() {
 }
 
 play() {
-    start=$(printf "%s" "$ep_no" | grep -Eo '^(-1|[0-9]+(\.[0-9]+)?)')
-    end=$(printf "%s" "$ep_no" | grep -Eo '(-1|[0-9]+(\.[0-9]+)?)$')
-    [ "$start" = "-1" ] && ep_no=$(printf "%s" "$ep_list" | tail -n1) && unset start
-    [ -z "$end" ] || [ "$end" = "$start" ] && unset start end
-    [ "$end" = "-1" ] && end=$(printf "%s" "$ep_list" | tail -n1)
-    line_count=$(printf "%s\n" "$ep_no" | wc -l | tr -d "[:space:]")
-    if [ "$line_count" != 1 ] || [ -n "$start" ]; then
-        [ -z "$start" ] && start=$(printf "%s\n" "$ep_no" | head -n1)
-        [ -z "$end" ] && end=$(printf "%s\n" "$ep_no" | tail -n1)
-        range=$(printf "%s\n" "$ep_list" | sed -nE "/^${start}\$/,/^${end}\$/p")
-        [ -z "$range" ] && die "Invalid range!"
-        for i in $range; do
-            tput clear
-            ep_no=$i
-            printf "\33[2K\r\033[1;34mPlaying episode %s...\033[0m\n" "$ep_no"
-            [ "$i" = "$end" ] && unset range
-            play_episode
-        done
-    else
+    segments="$ep_no"
+    final_range=""
+    for segment in $segments; do
+        start=$(printf "%s" "$segment" | grep -Eo '^(-1|[0-9]+(\.[0-9]+)?)')
+        end=$(printf "%s" "$segment" | grep -Eo '(-1|[0-9]+(\.[0-9]+)?)$')
+        [ "$start" = "-1" ] && segment=$(printf "%s" "$ep_list" | tail -n1) && unset start
+        [ -z "$end" ] || [ "$end" = "$start" ] && unset start end
+        [ "$end" = "-1" ] && end=$(printf "%s" "$ep_list" | tail -n1)
+        sub_range=""
+        if [ -n "$start" ] || [ -n "$end" ]; then
+            [ -z "$start" ] && start=$(printf "%s\n" "$segment" | head -n1)
+            [ -z "$end" ] && end=$(printf "%s\n" "$segment" | tail -n1)
+            sub_range=$(printf "%s\n" "$ep_list" | sed -nE "/^${start}\$/,/^${end}\$/p")
+        else
+            sub_range="$segment"
+        fi
+        [ -z "$sub_range" ] && die "Invalid segment: $segment"
+        final_range="${final_range:+$final_range$IFS}$sub_range"
+    done
+
+    # process final list
+    for i in $final_range; do
+        tput clear
+        ep_no=$i
+        printf "\33[2K\r\033[1;34mPlaying episode %s...\033[0m\n" "$ep_no"
         play_episode
-    fi
+    done
     # moves up to stored position and deletes to end
     [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && tput rc && tput ed
 }
@@ -386,8 +388,6 @@ play() {
 
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ani-cli"
-[ -f "$config_dir/config" ] && . "$config_dir/config"
 allanime_refr="https://allmanga.to"
 allanime_base="allanime.day"
 allanime_api="https://api.${allanime_base}"
@@ -468,7 +468,7 @@ while [ $# -gt 0 ]; do
         -h | --help) help_info ;;
         -e | --episode | -r | --range)
             [ $# -lt 2 ] && die "missing argument!"
-            ep_no="$2"
+            ep_no="${ep_no:+$ep_no$IFS}$2"
             shift
             ;;
         --dub) mode="dub" ;;
@@ -538,7 +538,7 @@ case "$search" in
             if [ -z "$anime_list" ]; then
                 if [ "$page" -eq 1 ]; then
                     printf "\33[2K\r\033[1;31mNo results found for \"%s\"!\033[0m\n" "$query" >&2
-                    if [ "$use_external_menu" = "0" ]; then
+                    if [ "$use_external_menu" = "0" ] && [ -t 0 ]; then
                        printf "Search again? [Y/n] "
                        read -r answer
                        case "$answer" in
